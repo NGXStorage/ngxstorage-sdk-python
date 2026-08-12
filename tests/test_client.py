@@ -50,7 +50,7 @@ def test_api_error_classification():
 
 
 @responses.activate
-def test_fc_target_wwpns(client):
+def test_fc_target_get_raw(client):
     responses.add(
         responses.GET,
         "https://10.0.0.1/api/v2/target/fc/t1",
@@ -62,19 +62,18 @@ def test_fc_target_wwpns(client):
                 {
                     "id": "p1",
                     "name": "fc0/1",
-                    "wwpns": [
-                        {"wwpn": "naa.2002a", "owner": "o", "target_id": "t1"},
-                        {"wwpn": "naa.2002b", "owner": "o", "target_id": "t1"},
-                    ],
+                    "wwpns": [{"wwpn": "naa.2002a", "owner": "o", "target_id": "t1"}],
                     "initiators": [],
                 }
             ],
-            "luns": [],
+            "luns": [{"id": "lun-1", "name": "v", "number": "6", "pool_name": "pool1", "scsi_id": "3600"}],
         },
         status=200,
     )
-    wwpns = client.fc_targets.get_wwpns("t1")
-    assert wwpns == ["2002a", "2002b"]
+    target = client.fc_targets.get("t1")
+    # Raw backend values: WWPN keeps naa. prefix, LUN number stays a string.
+    assert target["ports"][0]["wwpns"][0]["wwpn"] == "naa.2002a"
+    assert target["luns"][0]["number"] == "6"
 
 
 @responses.activate

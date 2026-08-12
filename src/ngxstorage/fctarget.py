@@ -1,4 +1,9 @@
-"""Fibre Channel target service."""
+"""Fibre Channel target service.
+
+Field values are returned exactly as the backend produces them (WWPNs retain
+the "naa." prefix; LUN numbers are strings). Interpretation is the driver's
+job.
+"""
 
 from __future__ import annotations
 
@@ -14,29 +19,6 @@ class FCTargetService:
 
     def get(self, target_id: str) -> dict:
         return self._c.get("target/fc", [target_id])
-
-    def _strip_naa(self, wwpn: str) -> str:
-        return wwpn[4:] if wwpn.startswith("naa.") else wwpn
-
-    def get_wwpns(self, target_id: str) -> list:
-        """Return deduplicated target WWPNs with the 'naa.' prefix stripped."""
-        target = self.get(target_id)
-        seen = set()
-        wwpns = []
-        for port in target.get("ports", []):
-            for w in port.get("wwpns", []):
-                clean = self._strip_naa(w.get("wwpn", ""))
-                if clean and clean not in seen:
-                    seen.add(clean)
-                    wwpns.append(clean)
-        return wwpns
-
-    def get_lun_number(self, target_id: str, lun_id: str) -> int:
-        target = self.get(target_id)
-        for lun in target.get("luns", []):
-            if lun.get("id") == lun_id:
-                return int(lun["number"])
-        raise LookupError(f"LUN {lun_id} not mapped to target {target_id}")
 
     def add_lun(self, target_id: str, lun_id: str, owner: str) -> None:
         body = {"owner": owner, "lun_ids": [lun_id]}
@@ -55,9 +37,3 @@ class FCTargetService:
             if is_not_found(exc):
                 return
             raise
-
-    def select_by_name(self, name: str) -> str:
-        for target in self.list():
-            if target.get("name") == name:
-                return target["id"]
-        raise LookupError(f"FC target {name!r} not found")
