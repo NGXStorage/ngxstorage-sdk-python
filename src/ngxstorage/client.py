@@ -111,12 +111,22 @@ class NGXClient:
     def current_controller(self) -> str:
         return self.controllers[self.node_index]
 
-    def _url(self, group: str, segments: typing.Optional[typing.List[str]] = None) -> str:
+    def _url(
+        self,
+        group: str,
+        segments: typing.Optional[typing.List[str]] = None,
+        query: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> str:
         parts = ["https://", self.current_controller(), "/", self.API_VERSION, "/", group]
         for seg in segments or []:
             parts.append("/")
             parts.append(str(seg))
-        return "".join(parts)
+        url = "".join(parts)
+        if query:
+            import urllib.parse
+
+            url += "?" + urllib.parse.urlencode(query)
+        return url
 
     def _request(
         self,
@@ -154,8 +164,13 @@ class NGXClient:
 
         raise APIError(0, CODE_BUSY, "retries exhausted", method, url)
 
-    def get(self, group: str, segments: typing.Optional[typing.List[str]] = None) -> typing.Any:
-        data, _ = self._request("GET", self._url(group, segments))
+    def get(
+        self,
+        group: str,
+        segments: typing.Optional[typing.List[str]] = None,
+        query: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> typing.Any:
+        data, _ = self._request("GET", self._url(group, segments, query))
         return data
 
     def mutate(
@@ -164,8 +179,9 @@ class NGXClient:
         group: str,
         segments: typing.Optional[typing.List[str]],
         body: typing.Optional[dict],
+        query: typing.Optional[typing.Dict[str, str]] = None,
     ) -> typing.Any:
-        data, _ = self._request(method, self._url(group, segments), body)
+        data, _ = self._request(method, self._url(group, segments, query), body)
         return data
 
     # -- lazy service accessors ---------------------------------------------
@@ -189,6 +205,11 @@ class NGXClient:
     def fc_targets(self):
         from ngxstorage.fctarget import FCTargetService
         return self._service("fc_targets", FCTargetService)
+
+    @property
+    def iscsi_targets(self):
+        from ngxstorage.iscsitarget import ISCSITargetService
+        return self._service("iscsi_targets", ISCSITargetService)
 
     @property
     def snapshots(self):
@@ -216,8 +237,93 @@ class NGXClient:
         return self._service("portal_groups", PortalGroupService)
 
     def refresh_controller(self) -> None:
-        """Resolve work mode and select the serving controller."""
-        raise NotImplementedError("controller refresh: implement per work-mode")
+        """Resolve the NGX work mode and select the serving controller.
+
+        Mirrors the Go SDK: single-master, master-ready, and cluster modes are
+        recognized; with a configured pool the controller whose pool list
+        contains the pool is selected. A failed refresh preserves the previous
+        selection. Raises PoolNotFound or ClusterNotReady on unusable state.
+        """
+        observations = []
+        for index, ip in enumerate(self.controllers):
+            observation = {"index": index, "ip": ip, "connected": False, "status": ""}
+            try:
+                cluster = self._cluster_status_for(ip)
+                observation["status"] = cluster.get("status", "")
+                if cluster.get("connected", 0) == 1:
+                    observation["connected"] = True
+            except Exception as exc:  # probe failure: controller not usable
+                logger.warning("ngx sdk: cluster lookup failed for %s: %s", ip, exc)
+            observations.append(observation)
+
+        candidates = []
+        mode = ""
+        if len(observations) == 1:
+            obs = observations[0]
+            if obs["connected"] and obs["status"] == "Master":
+                mode = "single-master"
+                candidates = [obs["index"]]
+        elif len(observations) == 2:
+            a, b = observations
+            if a["connected"] and b["connected"] and a["status"] == "Master" and b["status"] == "Ready":
+                mode = "master-ready"
+                candidates = [a["index"]]
+            elif a["connected"] and b["connected"] and a["status"] == "Ready" and b["status"] == "Master":
+                mode = "master-ready"
+                candidates = [b["index"]]
+            elif a["connected"] and b["connected"] and a["status"] == "Cluster" and b["status"] == "Cluster":
+                mode = "cluster"
+                candidates = [a["index"], b["index"]]
+
+        if not candidates:
+            raise ClusterNotReady("controllers do not form a serviceable work mode")
+
+        if not self.pool_name:
+            self.node_index = candidates[0]
+            logger.info(
+                "ngx sdk: controller selected (%s): %s", mode, self.controllers[self.node_index]
+            )
+            return
+
+        selected = -1
+        for index in candidates:
+            try:
+                pools = self._pool_list_for(self.controllers[index])
+            except Exception as exc:  # pool lookup failure: skip candidate
+                logger.warning("ngx sdk: pool lookup failed for %s: %s", self.controllers[index], exc)
+                continue
+            for pool in pools:
+                if pool.get("name") == self.pool_name or pool.get("id") == self.pool_name:
+                    selected = index
+                    break
+            if selected != -1:
+                break
+
+        if selected == -1:
+            raise PoolNotFound(f"configured pool {self.pool_name!r} not found")
+
+        self.node_index = selected
+        logger.info("ngx sdk: controller selected (%s): %s", mode, self.controllers[selected])
+
+    def _cluster_status_for(self, ip: str) -> dict:
+        """Read the cluster status document from a specific controller IP."""
+        saved = self.node_index
+        try:
+            index = self.controllers.index(ip)
+            self.node_index = index
+            return self.get("status", ["cluster"])
+        finally:
+            self.node_index = saved
+
+    def _pool_list_for(self, ip: str) -> list:
+        """Read the lightweight pool list from a specific controller IP."""
+        saved = self.node_index
+        try:
+            index = self.controllers.index(ip)
+            self.node_index = index
+            return self.get("pool", None)
+        finally:
+            self.node_index = saved
 
 
 def _response_error(body_text: str) -> typing.Tuple[int, str]:

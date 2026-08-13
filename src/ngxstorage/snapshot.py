@@ -18,6 +18,12 @@ class SnapshotService:
     def list(self) -> list:
         return self._c.get("snapshot", None)
 
+    def list_detail(self, volume_id: typing.Optional[str] = None) -> list:
+        """Detailed snapshots from /api/v2/snapshot/list, optionally filtered
+        by one source volume ID (NFS CSI / Cinder NFS snapshot restore)."""
+        query = {"volume_id": volume_id} if volume_id else None
+        return self._c.get("snapshot", ["list"], query)
+
     def delete(self, snap_id: str) -> None:
         try:
             self._c.mutate("DELETE", "snapshot", [snap_id], None)
