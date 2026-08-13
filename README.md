@@ -1,8 +1,22 @@
-# NGX Storage Manager API v2 SDK (Python)
+# NGX Storage Manager API v2 SDK — Python
 
-Unified Python SDK for the NGX Storage Manager API v2. Mirrors the Go SDK
-(`ngx-sdk-go`) — one client, one auth/retry/failover implementation, and
-per-resource services covering every API v2 group.
+Unified Python client for the [NGX Storage Manager API v2](https://gitlab.ngxio.com/ngx-storage/api/v2).
+One client owns **auth, TLS, bounded 725-busy retry, controller failover, and
+work-mode selection**; every driver (Cinder FC, Cinder iSCSI, Cinder NFS)
+imports this SDK instead of writing its own NGX HTTP client.
+
+Mirrors the Go SDK (`ngxstorage-sdk-go`) with the same architecture and
+canonical backend fields.
+
+## Features
+
+- API-key auth (Bearer) — never logged
+- Controller failover with work-mode resolution (`single-master`, `master-ready`, `cluster`)
+- Bounded 725-busy retry (6 attempts, 10–30s exponential backoff)
+- Transport failover replays safe methods (GET/DELETE) only — **POST never replayed**
+- Optional TLS verification (skipped by default — NGX appliances are self-signed)
+- Pluggable `BaseMiddleware` chain
+- Per-resource services covering every API v2 group
 
 ## Install
 
@@ -10,47 +24,118 @@ per-resource services covering every API v2 group.
 pip install -e .
 ```
 
-## Usage
+## Quick start
 
 ```python
 from ngxstorage import NGXClient, ClientConfig
 
 client = NGXClient(ClientConfig(
     controllers=["192.168.1.201", "192.168.1.202"],
-    api_key="<redacted>",
+    api_key="your-api-key",
     pool_name="pool1",
-    # NGX appliances are self-signed; verify is skipped by default.
+    # NGX appliances are self-signed; verification is skipped by default.
     # Provide ca_bundle to enforce a customer trust chain.
     insecure_skip_verify=True,
 ))
 
+# Resolve the serving controller + pool once before serving traffic.
+client.refresh_controller()
+
 # LUN (block)
 lun = client.luns.create("vol1", 100)
-client.luns.expand(lun_id, 200)
-client.luns.delete(lun_id)
+client.luns.expand(lun["id"], 200)
+client.luns.delete(lun["id"])
 
-# FC target
-wwpns = client.fc_targets.get_wwpns(target_id)
-client.fc_targets.add_lun(target_id, lun_id, owner)
+# NFS share (created with export disabled)
+share = client.shares.create("share1", 100 * 1024**3)
+client.shares.set_export_enabled(share["id"], True)
 
-# Snapshot
-snap = client.snapshots.create(volume_id, "snap1")
-clone_id = client.snapshots.clone(snap_id, "clone1")
+# Snapshot + clone
+snap = client.snapshots.create(lun["id"], "snap1")
+clone_id = client.snapshots.clone(snap["id"], "clone1")
 
-# Pool / status
-pools = client.pools.list()
+# iSCSI target + CHAP
+client.iscsi_targets.add_lun(target_id, lun["id"], owner)
+client.auth_groups.add_chap(group_id, "user", "pass")
+
+# Pool capacity / cluster status
+available, reserved = client.pools.get_configured_capacity()
 cluster = client.status.cluster()
 ```
+
+## Configuration
+
+`ClientConfig` fields:
+
+| Field | Description |
+|-------|-------------|
+| `controllers` | 1–2 controller IPs/hostnames (required) |
+| `api_key` | Bearer token (required, never logged) |
+| `pool_name` | Canonical pool name; empty skips pool ownership checks |
+| `insecure_skip_verify` | Skip TLS verification (default `True` for self-signed NGX) |
+| `ca_bundle` | Optional path to a customer CA bundle |
+| `middlewares` | `BaseMiddleware` chain, outermost-first |
+| `timeout` | Per-request timeout (default 60s) |
+| `max_retries` / `base_delay` / `max_delay` | 725-busy retry bounds |
+
+`ClientConfig.__repr__` redacts the API key.
+
+## Services
+
+| Service | Accessor | Operations |
+|---------|----------|------------|
+| LUN | `client.luns` | `create`, `get`, `list`, `delete`, `modify`, `expand` |
+| Share (NFS) | `client.shares` | `create`, `get`, `list`, `list_names`, `delete`, `modify`, `expand`, `set_export_enabled`, `set_read_only` |
+| Snapshot | `client.snapshots` | `create`, `get`, `list`, `list_detail`, `delete`, `clone`, `restore` |
+| FC target | `client.fc_targets` | `list`, `get`, `add_lun`, `remove_lun` |
+| iSCSI target | `client.iscsi_targets` | `list`, `get`, `create`, `delete`, `add_lun`, `remove_lun` |
+| Auth group | `client.auth_groups` | `create`, `get`, `list`, `delete`, `add_chap`, `delete_chap` |
+| Portal group | `client.portal_groups` | `list`, `get`, `create`, `delete` |
+| Pool | `client.pools` | `list`, `get`, `overview`, `get_configured_capacity` |
+| Status | `client.status` | `cluster`, `services`, `capacity`, `iops`, `bandwidth` |
+
+## Error handling
+
+The SDK raises typed exceptions; classify without string matching:
+
+```python
+from ngxstorage import APIError
+from ngxstorage.errors import is_not_found, is_busy, is_already_exists
+
+try:
+    client.luns.delete(lun_id)
+except APIError as exc:
+    if is_not_found(exc):
+        pass  # idempotent success
+    elif is_busy(exc):
+        pass  # 725, already retried
+```
+
+`APIError` carries `status_code`, `code`, `message`, `method`, `endpoint`.
+Sentinels: `PoolNotFound`, `ClusterNotReady`, `TransportError`.
 
 ## Security
 
 - The API key, CHAP passwords, and S3 secret keys are never logged.
-- TLS verification is optional: skipped by default (self-signed NGX
-  appliances); set `ca_bundle` to enforce a customer trust chain.
+- TLS verification is optional: skipped by default because NGX appliances use
+  self-signed certificates and most customers have no private CA/DNS. Pass
+  `ca_bundle` to enforce a customer trust chain.
+- POST mutations are never replayed after an ambiguous transport failure.
+
+## Canonical backend fields
+
+Reads use the live backend JSON contract (nested `capacity.soft_quota`,
+`exports.nfs.enabled`/`read_only`); writes use the canonical flat fields
+(`soft_quota`, `nfs_export`, `nfs_read_only`). The SDK does not probe
+alternate names.
 
 ## Test
 
 ```bash
 pip install -e ".[test]"
-pytest
+PYTHONPATH=src pytest
 ```
+
+## License
+
+Apache-2.0
