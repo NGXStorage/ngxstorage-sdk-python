@@ -1,6 +1,6 @@
 # NGX Storage Manager API v2 SDK — Python
 
-Unified Python client for the [NGX Storage Manager API v2](https://gitlab.ngxio.com/ngx-storage/api/v2).
+Unified Python client for the NGX Storage Manager API v2.
 One client owns **auth, TLS, bounded 725-busy retry, controller failover, and
 work-mode selection**; every driver (Cinder FC, Cinder iSCSI, Cinder NFS)
 imports this SDK instead of writing its own NGX HTTP client.
