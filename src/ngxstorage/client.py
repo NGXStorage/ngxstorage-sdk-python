@@ -2,7 +2,7 @@
 
 Design mirrors the Go SDK (ngx-sdk-go): a single Client owns controller
 selection, bounded 725-busy retry, and transport failover. TLS verification
-is optional and skips by default because NGX appliances use self-signed
+is optional and skips by default because NGX Storage Arrays use self-signed
 certificates and most customers have no private CA/DNS; pass ca_bundle to
 enforce a customer trust chain.
 """
@@ -52,7 +52,7 @@ class ClientConfig:
     controllers: typing.List[str]
     api_key: str
     pool_name: str = ""
-    insecure_skip_verify: bool = True  # NGX appliances are self-signed
+    insecure_skip_verify: bool = True  # NGX Storage Arrays are self-signed
     ca_bundle: typing.Optional[str] = None  # path to a customer CA bundle
     verify_hostname: bool = True
     middlewares: typing.List[BaseMiddleware] = field(default_factory=list)

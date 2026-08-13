@@ -14,7 +14,7 @@ canonical backend fields.
 - Controller failover with work-mode resolution (`single-master`, `master-ready`, `cluster`)
 - Bounded 725-busy retry (6 attempts, 10–30s exponential backoff)
 - Transport failover replays safe methods (GET/DELETE) only — **POST never replayed**
-- Optional TLS verification (skipped by default — NGX appliances are self-signed)
+- Optional TLS verification (skipped by default — NGX Storage Arrays are self-signed)
 - Pluggable `BaseMiddleware` chain
 - Per-resource services covering every API v2 group
 
@@ -33,7 +33,7 @@ client = NGXClient(ClientConfig(
     controllers=["192.168.1.201", "192.168.1.202"],
     api_key="your-api-key",
     pool_name="pool1",
-    # NGX appliances are self-signed; verification is skipped by default.
+    # NGX Storage Arrays are self-signed; verification is skipped by default.
     # Provide ca_bundle to enforce a customer trust chain.
     insecure_skip_verify=True,
 ))
@@ -117,7 +117,7 @@ Sentinels: `PoolNotFound`, `ClusterNotReady`, `TransportError`.
 ## Security
 
 - The API key, CHAP passwords, and S3 secret keys are never logged.
-- TLS verification is optional: skipped by default because NGX appliances use
+- TLS verification is optional: skipped by default because NGX Storage Arrays use
   self-signed certificates and most customers have no private CA/DNS. Pass
   `ca_bundle` to enforce a customer trust chain.
 - POST mutations are never replayed after an ambiguous transport failure.
