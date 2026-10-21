@@ -30,7 +30,10 @@ def main(argv=None) -> int:
     parser.add_argument("--controllers", required=True, help="comma-separated controller IPs")
     parser.add_argument("--api-key", required=True, help="NGX API key")
     parser.add_argument("--pool-name", default="", help="canonical pool name")
-    parser.add_argument("--verify", action="store_true", help="verify TLS (default: skip for self-signed NGX)")
+    parser.add_argument(
+        "--verify", action="store_true",
+        help="verify TLS (default: skip for self-signed NGX Storage Arrays)",
+    )
 
     sub = parser.add_subparsers(dest="command")
 

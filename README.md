@@ -16,7 +16,8 @@ canonical backend fields.
 - Transport failover replays safe methods (GET/DELETE) only — **POST never replayed**
 - Optional TLS verification (skipped by default — NGX Storage Arrays are self-signed)
 - Pluggable `BaseMiddleware` chain
-- Per-resource services covering every API v2 group
+- Per-resource services for the API v2 groups with current consumers and
+  verified contracts
 
 ## Install
 
@@ -43,7 +44,7 @@ client.refresh_controller()
 
 # LUN (block)
 lun = client.luns.create("vol1", 100)
-client.luns.expand(lun["id"], 200)
+client.luns.expand(lun["id"], 200)  # additive: grow by 200 GiB
 client.luns.delete(lun["id"])
 
 # NFS share (created with export disabled)
@@ -72,11 +73,11 @@ cluster = client.status.cluster()
 | `controllers` | 1–2 controller IPs/hostnames (required) |
 | `api_key` | Bearer token (required, never logged) |
 | `pool_name` | Canonical pool name; empty skips pool ownership checks |
-| `insecure_skip_verify` | Skip TLS verification (default `True` for self-signed NGX) |
+| `insecure_skip_verify` | Skip TLS verification (default `True` for self-signed NGX Storage Arrays) |
 | `ca_bundle` | Optional path to a customer CA bundle |
 | `middlewares` | `BaseMiddleware` chain, outermost-first |
 | `timeout` | Per-request timeout (default 60s) |
-| `max_retries` / `base_delay` / `max_delay` | 725-busy retry bounds |
+| `max_retries` / `base_delay` / `max_delay` | 725-busy retry bounds only (transport failures are never retried by the SDK) |
 
 `ClientConfig.__repr__` redacts the API key.
 
@@ -86,13 +87,13 @@ cluster = client.status.cluster()
 |---------|----------|------------|
 | LUN | `client.luns` | `create`, `get`, `list`, `delete`, `modify`, `expand` |
 | Share (NFS) | `client.shares` | `create`, `get`, `list`, `list_names`, `delete`, `modify`, `expand`, `set_export_enabled`, `set_read_only` |
-| Snapshot | `client.snapshots` | `create`, `get`, `list`, `list_detail`, `delete`, `clone`, `restore` |
-| FC target | `client.fc_targets` | `list`, `get`, `add_lun`, `remove_lun` |
-| iSCSI target | `client.iscsi_targets` | `list`, `get`, `create`, `delete`, `add_lun`, `remove_lun` |
-| Auth group | `client.auth_groups` | `create`, `get`, `list`, `delete`, `add_chap`, `delete_chap` |
-| Portal group | `client.portal_groups` | `list`, `get`, `create`, `delete` |
-| Pool | `client.pools` | `list`, `get`, `overview`, `get_configured_capacity` |
-| Status | `client.status` | `cluster`, `services`, `capacity`, `iops`, `bandwidth` |
+| Snapshot | `client.snapshots` | `create`, `get`, `list`, `list_detail`, `delete`, `delete_all`, `clone`, `restore`, `get_schedule`, `create_schedule`, `delete_schedule` |
+| FC target | `client.fc_targets` | `list`, `list_names`, `list_detail`, `get`, `add_lun`, `remove_lun`, `list_initiator_tags`, `create_initiator_tag`, `get_initiator_tag`, `delete_initiator_tag` |
+| iSCSI target | `client.iscsi_targets` | `list`, `list_names`, `list_detail`, `get`, `create`, `delete`, `add_lun`, `remove_lun`, `change_name`, `change_auth_group`, `change_portal_group` |
+| Auth group | `client.auth_groups` | `create`, `get`, `list`, `list_detail`, `delete`, `add_chap`, `delete_chap`, `add_iqn`, `delete_iqn` |
+| Portal group | `client.portal_groups` | `list`, `list_detail`, `get` (`create`/`delete` deprecated — the backend has no such routes) |
+| Pool | `client.pools` | `list`, `list_detail`, `get`, `overview`, `get_configured_capacity` |
+| Status | `client.status` | `cluster`, `services`, `capacity`, `iops`, `bandwidth`, `cache`, `cpu`, `enclosures`, `license`, `overloaded_volumes` |
 
 ## Error handling
 

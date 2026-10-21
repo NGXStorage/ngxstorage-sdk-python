@@ -1,8 +1,8 @@
 """Unified NGX Storage Manager API v2 SDK.
 
-This package mirrors the Go SDK (ngx-sdk-go): one client, one auth/retry/
-failover implementation, and per-resource services covering every API v2
-group. The API key and any CHAP/S3 secret are never logged.
+One client, one auth/retry/failover implementation, and per-resource services
+for the API v2 groups with current consumers and verified contracts. The API
+key and any CHAP/S3 secret are never logged.
 """
 
 from ngxstorage.client import NGXClient, ClientConfig
